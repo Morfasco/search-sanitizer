@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.eggs/
+dist/
+build/
+.venv/
+venv/
+
+# Backups
+*.bak*
+*.broken*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Secrets (never commit actual secrets)
+searxng/settings.yml
+
+# Test outputs
+redteam_results_*.txt

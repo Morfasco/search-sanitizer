@@ -1,0 +1,59 @@
+services:
+  # ── SearXNG — internal search engine ──────────────────────────────────
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: always
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:rw
+      - ./searxng/limiter.toml:/etc/searxng/limiter.toml:rw
+    environment:
+      - INSTANCE_NAME=local-mcp
+    # NOT exposed to host — only the agent talks to it
+    expose:
+      - "8080"
+    networks:
+      - search-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Search Agent — AI-powered API ─────────────────────────────────────
+  agent:
+    build: .
+    container_name: search-agent
+    restart: always
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=256m
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - search-net
+    depends_on:
+      searxng:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  search-net:
+    driver: bridge
