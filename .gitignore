@@ -27,3 +27,6 @@ redteam_results_*.txt
 
 # User config (contains model choices, API keys)
 .env
+
+# Deploy script (local only, not published)
+implement.sh
