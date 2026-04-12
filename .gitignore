@@ -24,3 +24,6 @@ searxng/settings.yml
 
 # Test outputs
 redteam_results_*.txt
+
+# User config (contains model choices, API keys)
+.env

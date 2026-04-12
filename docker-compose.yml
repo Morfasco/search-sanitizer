@@ -1,5 +1,5 @@
 services:
-  # ── SearXNG — internal search engine ──────────────────────────────────
+  # ── SearXNG — internal search engine ──────────────────────────
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
@@ -16,8 +16,7 @@ services:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:rw
       - ./searxng/limiter.toml:/etc/searxng/limiter.toml:rw
     environment:
-      - INSTANCE_NAME=local-mcp
-    # NOT exposed to host — only the agent talks to it
+      - INSTANCE_NAME=search-sanitizer
     expose:
       - "8080"
     networks:
@@ -29,7 +28,7 @@ services:
       retries: 5
       start_period: 20s
 
-  # ── Search Agent — AI-powered API ─────────────────────────────────────
+  # ── Search Agent — sanitizer + API ────────────────────────────
   agent:
     build: .
     container_name: search-agent
@@ -42,8 +41,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
-          cpus: "0.5"
+          memory: 512M
+          cpus: "1.0"
     ports:
       - "127.0.0.1:8000:8000"
     networks:
@@ -53,6 +52,25 @@ services:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      # Fallback defaults if .env is missing
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - LLM_API_FORMAT=${LLM_API_FORMAT:-ollama}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - FILTER_MODEL=${FILTER_MODEL:-qwen3:4b}
+      - SECURITY_MODEL=${SECURITY_MODEL:-qwen3.5-128k:latest}
+      - FILTER_CONTEXT_WINDOW=${FILTER_CONTEXT_WINDOW:-32768}
+      - SECURITY_CONTEXT_WINDOW=${SECURITY_CONTEXT_WINDOW:-131072}
+      - MAX_PAGES_TO_FETCH=${MAX_PAGES_TO_FETCH:-6}
+      - MAX_PAGE_CHARS=${MAX_PAGE_CHARS:-20000}
+      - RESULTS_PER_QUERY=${RESULTS_PER_QUERY:-5}
+      - OCR_ENABLED=${OCR_ENABLED:-true}
+      - OCR_DPI=${OCR_DPI:-300}
+      - OCR_POINTSIZE=${OCR_POINTSIZE:-20}
+      - OCR_WIDTH=${OCR_WIDTH:-2400}
+      - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
 
 networks:
   search-net:

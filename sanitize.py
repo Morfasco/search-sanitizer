@@ -110,12 +110,16 @@ def _ocr_single(text: str) -> tuple[str, bool]:
         # -type Grayscale    → force grayscale (Tesseract preference)
         # -compress None     → no compression (lossless TIFF)
 
+        ocr_dpi = os.environ.get("OCR_DPI", "300")
+        ocr_width = os.environ.get("OCR_WIDTH", "2400")
+        ocr_pts = os.environ.get("OCR_POINTSIZE", "20")
+
         render = subprocess.run([
             'convert',
-            '-density', '300',
-            '-size', '2400x',
+            '-density', ocr_dpi,
+            '-size', f'{ocr_width}x',
             '-font', 'DejaVu-Sans-Mono',
-            '-pointsize', '20',
+            '-pointsize', ocr_pts,
             '-background', 'white',
             '-fill', 'black',
             'caption:@' + txt_path,
@@ -149,7 +153,7 @@ def _ocr_single(text: str) -> tuple[str, bool]:
             'tesseract', img_path, 'stdout',
             '--oem', '1',
             '--psm', '6',
-            '--dpi', '300',
+            '--dpi', ocr_dpi,
             '-l', 'eng',
             '-c', 'preserve_interword_spaces=1',
         ], capture_output=True, text=True, timeout=60)
@@ -373,7 +377,15 @@ def full_sanitize(text: str, source_url: str = "unknown") -> dict:
     Returns dict with sanitized text, findings, and metadata.
     """
     # Layer 1: OCR (ground truth — strips all invisible chars atomically)
-    ocr_output, ocr_ok = ocr_sanitize(text)
+    ocr_enabled = os.environ.get("OCR_ENABLED", "true").lower() == "true"
+
+    if ocr_enabled:
+        ocr_output, ocr_ok = ocr_sanitize(text)
+    else:
+        # OCR disabled — fall back to unicode stripping only
+        ocr_output = text
+        ocr_ok = False
+        log.info("OCR disabled via OCR_ENABLED=false, using unicode strip fallback")
     if not ocr_ok:
         log.warning(f"OCR failed for {source_url}, fell back to unicode strip")
     ocr_applied = ocr_ok
