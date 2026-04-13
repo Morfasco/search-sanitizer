@@ -410,7 +410,7 @@ async def execute_pipeline(
     total_unicode_stripped = 0
 
     for page in pages:
-        san = full_sanitize(page["text"], source_url=page["url"])
+        san = await full_sanitize(page["text"], source_url=page["url"])
         page["text"] = san["sanitized_text"]
         page["chars"] = len(page["text"])
         total_injection_findings += len(san["injection_findings"])
@@ -674,7 +674,7 @@ async def search_security(req: SecuritySearchRequest):
         truncated = raw_content[:MAX_PAGE_CHARS]
 
         # Full sanitization pipeline
-        result = full_sanitize(truncated, source_url=url)
+        result = await full_sanitize(truncated, source_url=url)
         sanitized_pages.append(result["wrapped_text"])
         total_findings.extend(result["injection_findings"])
 
@@ -767,7 +767,7 @@ async def test_sanitize(req: SanitizeTestRequest):
     import time as _time
     start = _time.time()
 
-    result = full_sanitize(req.text, source_url=req.source_url)
+    result = await full_sanitize(req.text, source_url=req.source_url)
 
     # Check if attack content survived sanitization
     original_lower = req.text.lower()

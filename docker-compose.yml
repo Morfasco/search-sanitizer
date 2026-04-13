@@ -43,8 +43,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
-          cpus: "0.5"
+          memory: 2048M
+          cpus: "16.0"
+        reservations:
+          cpus: "8.0"
     ports:
       - "127.0.0.1:8000:8000"
     networks:
@@ -54,6 +56,9 @@ services:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    environment:
+      - OCR_MAX_CONCURRENCY=16
+      - OCR_CHUNK_SIZE=1000
 
 networks:
   search-net:
