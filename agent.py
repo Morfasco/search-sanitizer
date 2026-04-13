@@ -13,7 +13,6 @@ Endpoints:
 """
 
 import asyncio
-import os
 import json
 import logging
 import re
@@ -27,14 +26,10 @@ from pydantic import BaseModel, Field
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
-# ── Configuration (from environment / .env) ─────────────────────────────
-SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://searxng:8080")
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
-MODEL = os.environ.get("FILTER_MODEL", "qwen3:4b")
-SECURITY_MODEL = os.environ.get("SECURITY_MODEL", "qwen3.5-128k:latest")
-LLM_API_FORMAT = os.environ.get("LLM_API_FORMAT", "ollama")
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
-OCR_ENABLED = os.environ.get("OCR_ENABLED", "true").lower() == "true"
+SEARXNG_URL = "http://searxng:8080"
+OLLAMA_URL = "http://host.docker.internal:11434"
+MODEL = "qwen3:4b"
+SECURITY_MODEL = "qwen3.5-128k:latest"  # For /search/security (hardened)
 
 # ── Token budget for qwen3:4b (32k context) ────────────────────────────────
 #
@@ -49,17 +44,17 @@ OCR_ENABLED = os.environ.get("OCR_ENABLED", "true").lower() == "true"
 #   Key tradeoff vs 64k model: we fetch fewer pages but filter MUCH faster.
 #   Quality stays high because ranking puts the best pages first.
 
-TOTAL_CONTEXT = int(os.environ.get("FILTER_CONTEXT_WINDOW", "32768"))
+TOTAL_CONTEXT = 32_768
 CONTENT_BUDGET_TOKENS = 24_000
 OUTPUT_BUDGET_TOKENS = 4_000
 CHARS_PER_TOKEN = 4
 MAX_CONTENT_CHARS = CONTENT_BUDGET_TOKENS * CHARS_PER_TOKEN  # ~96,000
 
 # Search tuning
-RESULTS_PER_QUERY = int(os.environ.get("RESULTS_PER_QUERY", "5"))
-MAX_PAGES_TO_FETCH = int(os.environ.get("MAX_PAGES_TO_FETCH", "6"))          # Fewer than before — tighter budget, only the best
+RESULTS_PER_QUERY = 5
+MAX_PAGES_TO_FETCH = 6          # Fewer than before — tighter budget, only the best
 PAGE_TIMEOUT_S = 10
-MAX_PAGE_CHARS = int(os.environ.get("MAX_PAGE_CHARS", "20000"))         # Smaller per-page cap to fit more sources
+MAX_PAGE_CHARS = 20_000         # Smaller per-page cap to fit more sources
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,15 +73,6 @@ app = FastAPI(title="Search Agent", version="4.0.0")
 #   even that latency from the first search after a restart.
 
 @app.on_event("startup")
-async def log_config():
-    """Log configuration on startup."""
-    log.info(f"Config: model={MODEL}, security_model={SECURITY_MODEL}")
-    log.info(f"Config: api_format={LLM_API_FORMAT}, ollama_url={OLLAMA_URL}")
-    log.info(f"Config: context={TOTAL_CONTEXT}, ocr={OCR_ENABLED}")
-    log.info(f"Config: max_pages={MAX_PAGES_TO_FETCH}, page_chars={MAX_PAGE_CHARS}")
-
-
-@app.on_event("startup")
 async def prewarm_model():
     """Pre-warm qwen3:4b into VRAM on startup."""
     log.info(f"Pre-warming {MODEL} into VRAM...")
@@ -96,9 +82,6 @@ async def prewarm_model():
                 f"{OLLAMA_URL}/api/chat",
                 json={
                     "model": MODEL,
-        "security_model": SECURITY_MODEL,
-        "api_format": LLM_API_FORMAT,
-        "ocr_enabled": OCR_ENABLED,
                     "messages": [{"role": "user", "content": "ping"}],
                     "stream": False,
                     "keep_alive": "-1",
@@ -209,52 +192,25 @@ async def ollama_chat(
     timeout: float = 120.0,
     model_override: str | None = None,
 ) -> str:
-    model_name = model_override or MODEL
-
-    if LLM_API_FORMAT == "openai":
-        # OpenAI-compatible format (LM Studio, vLLM, text-gen-webui, etc.)
-        payload = {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+    payload = {
+        "model": (model_override or MODEL),
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "stream": False,
+        "keep_alive": "1h",
+        "options": {
             "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False,
-        }
-        headers = {"Content-Type": "application/json"}
-        if LLM_API_KEY:
-            headers["Authorization"] = f"Bearer {LLM_API_KEY}"
-        url = f"{OLLAMA_URL}/v1/chat/completions"
-    else:
-        # Ollama native format
-        payload = {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "stream": False,
-            "keep_alive": "1h",
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-                "num_ctx": TOTAL_CONTEXT,
-            },
-        }
-        headers = {"Content-Type": "application/json"}
-        url = f"{OLLAMA_URL}/api/chat"
-
+            "num_predict": max_tokens,
+            "num_ctx": TOTAL_CONTEXT,
+        },
+    }
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
-            r = await client.post(url, json=payload, headers=headers)
+            r = await client.post(f"{OLLAMA_URL}/api/chat", json=payload)
             r.raise_for_status()
-            data = r.json()
-            if LLM_API_FORMAT == "openai":
-                return data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            else:
-                return data.get("message", {}).get("content", "")
+            return r.json().get("message", {}).get("content", "")
         except httpx.ConnectError:
             raise HTTPException(503, f"Ollama unreachable at {OLLAMA_URL}")
         except httpx.ReadTimeout:
@@ -859,9 +815,6 @@ async def health():
         "status": "healthy" if ok else "degraded",
         "version": "3.0 — qwen3:4b filter",
         "model": MODEL,
-        "security_model": SECURITY_MODEL,
-        "api_format": LLM_API_FORMAT,
-        "ocr_enabled": OCR_ENABLED,
         "context_window": TOTAL_CONTEXT,
         "content_budget_chars": MAX_CONTENT_CHARS,
         **checks,
@@ -873,9 +826,6 @@ async def root():
     return {
         "service": "SearXNG Search Agent v4 (Hardened)",
         "model": MODEL,
-        "security_model": SECURITY_MODEL,
-        "api_format": LLM_API_FORMAT,
-        "ocr_enabled": OCR_ENABLED,
         "endpoints": {
             "POST /search/direct": {
                 "description": "Primary — pass pre-built queries from your coding LLM",
